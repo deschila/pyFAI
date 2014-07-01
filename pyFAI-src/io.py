@@ -1,8 +1,8 @@
 # !/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-#    Project: Azimuthal integration
-#             https://github.com/kif
+#    Project: Fast Azimuthal Integration
+#             https://github.com/kif/
 #
 #
 #    Copyright (C) European Synchrotron Radiation Facility, Grenoble, France
@@ -29,7 +29,7 @@ __author__ = "Jerome Kieffer"
 __contact__ = "Jerome.Kieffer@ESRF.eu"
 __license__ = "GPLv3+"
 __copyright__ = "European Synchrotron Radiation Facility, Grenoble, France"
-__date__ = "04/11/2013"
+__date__ = "27/06/2014"
 __status__ = "beta"
 __docformat__ = 'restructuredtext'
 __doc__ = """
@@ -57,14 +57,19 @@ import posixpath
 import json
 try:
     import h5py
-except ImportError:
+except ImportError as error:
     h5py = None
-    logger.error("h5py is missing")
+    logger.error("h5py module missing")
+else:
+    h5py._errors.silence_errors()
+
+from . import version
+
 
 import fabio
 from . import units
 
-def getIsoTime(forceTime=None):
+def get_isotime(forceTime=None):
     """
     @param forceTime: enforce a given time (current by default)
     @type forceTime: float
@@ -78,6 +83,33 @@ def getIsoTime(forceTime=None):
     tz_h = localtime.tm_hour - gmtime.tm_hour
     tz_m = localtime.tm_min - gmtime.tm_min
     return "%s%+03i:%02i" % (time.strftime("%Y-%m-%dT%H:%M:%S", localtime), tz_h, tz_m)
+
+def from_isotime(text, use_tz=False):
+    """
+    @param text: string representing the time is iso format 
+    """
+    text = str(text)
+    base = text[:19]
+    if use_tz and len(text) == 25:
+        sgn = 1 if  text[:19] == "+" else -1
+        tz = 60 * (60 * int(text[20:22]) + int(text[23:25])) * sgn
+    else:
+        tz = 0
+    return time.mktime(time.strptime(base, "%Y-%m-%dT%H:%M:%S")) + tz
+
+def is_hdf5(filename):
+    """
+    Check if a file is actually a HDF5 file
+    
+    @param filename: this file has better to exist
+    """
+    signature = [137, 72, 68, 70, 13, 10, 26, 10]
+    if not os.path.exists(filename):
+        raise IOError("No such file %s" % (filename))
+    with open(filename, "rb") as f:
+        sig = [ord(i) for i in f.read(10)]
+    return sig == signature
+
 
 class Writer(object):
     """
@@ -279,7 +311,7 @@ class HDF5Writer(Writer):
             name += " experiment"
             self.group["title"] = name
             self.group["program"] = "PyFAI"
-            self.group["start_time"] = getIsoTime()
+            self.group["start_time"] = get_isotime()
 
     def flush(self, radial=None, azimuthal=None):
         """
@@ -440,7 +472,7 @@ class AsciiWriter(Writer):
         filename = os.path.join(self.directory, self.prefix + (self.index_format % (self.start_index + index)) + self.extension)
         if filename:
             with open(filename, "w") as f:
-                f.write("# Processing time: %s%s" % (getIsoTime(), self.header))
+                f.write("# Processing time: %s%s" % (get_isotime(), self.header))
                 numpy.savetxt(f, data)
 
 class FabioWriter(Writer):
@@ -531,5 +563,130 @@ class FabioWriter(Writer):
         filename = os.path.join(self.directory, self.prefix + (self.index_format % (self.start_index + index)) + self.extension)
         if filename:
             with open(filename, "w") as f:
-                f.write("# Processing time: %s%s" % (getIsoTime(), self.header))
+                f.write("# Processing time: %s%s" % (get_isotime(), self.header))
                 numpy.savetxt(f, data)
+
+
+class Nexus(object):
+    """
+    Writer class to handle Nexus/HDF5 data
+    Manages:
+    entry
+        pyFAI-subentry
+            detector
+
+    #TODO: make it thread-safe !!!
+    """
+    def __init__(self, filename, mode="r"):
+        """
+        Constructor
+        
+        @param filename: name of the hdf5 file containing the nexus
+        @param mode: can be r or a
+        """
+        self.filename = os.path.abspath(filename)
+        self.mode = mode
+        if not h5py:
+            logger.error("h5py module missing: NeXus not supported")
+            raise RuntimeError("H5py module is missing")
+        if os.path.exists(self.filename) and self.mode == "r":
+            self.h5 = h5py.File(self.filename, mode=self.mode)
+        else:
+            self.h5 = h5py.File(self.filename)
+        self.to_close = []
+
+    def close(self):
+        """
+        close the filename and update all entries   
+        """
+        end_time = get_isotime()
+        for entry in self.to_close:
+            entry["end_time"] = end_time
+        self.h5.close()
+
+
+    def get_entries(self):
+        """
+        retrieves all entry sorted the latest first.
+        """
+
+        entries = [(grp, from_isotime(self.h5[grp + "/start_time"].value))
+                    for grp in self.h5
+                    if (isinstance(self.h5[grp], h5py.Group) and \
+                        "start_time" in self.h5[grp] and  \
+                        "NX_class" in self.h5[grp].attrs and \
+                        self.h5[grp].attrs["NX_class"] == "NXentry")]
+        entries.sort(cmp=lambda a, b: 1 if a[1] < b[1] else -1) #sort entries in decreasing time
+        return [self.h5[i[0]] for i in entries]
+
+    def find_detector(self, all=False):
+        """
+        Tries to find a detector within a NeXus file, takes the first compatible detector
+        
+        @param all: return all detectors found as a list 
+        """
+        result = []
+        for entry in self.get_entries():
+            for instrument in self.get_class(entry, "NXsubentry"):
+                for detector in self.get_class(instrument, "NXdetector"):
+                    if all:
+                        result.append(detector)
+                    else:
+                        return detector
+
+    def new_entry(self, entry):
+        """
+        Create a new entry
+
+        @param entry: name of the entry
+        @return: the corresponding HDF5 group
+        """
+        nb_entries = 1 + len(self.get_entries())
+        entry_grp = self.h5.require_group("%s_%04i" % (entry, nb_entries))
+        entry_grp.attrs["NX_class"] = "NXentry"
+        entry_grp["start_time"] = numpy.string_(get_isotime())
+        entry_grp["title"] = numpy.string_("description of experiment")
+        entry_grp["program_name"] = numpy.string_("pyFAI")
+        self.to_close.append(entry_grp)
+        return entry_grp
+
+    def new_class(self, grp, name, class_type="NXcollection"):
+        """
+        create a new sub-group with  type class_type
+        @param grp: parent group
+        @param name: name of the sub-group
+        @param class_type: NeXus class name
+        @return: subgroup created
+        """
+        sub = grp.require_group(name)
+        sub.attrs["NX_class"] = class_type
+        return sub
+
+    def new_detector(self, name="detector", entry="entry", subentry="pyFAI"):
+        """
+        Create a new entry/pyFAI/Detector
+        
+        @param detector: name of the detector
+        @param entry: name of the entry
+        @param subentry: all pyFAI description of detectors should be in a pyFAI sub-entry
+        """
+        entry_grp = self.new_entry(entry)
+        pyFAI_grp = self.new_class(entry_grp, subentry, "NXsubentry")
+        pyFAI_grp["definition_local"] = numpy.string_("pyFAI")
+        pyFAI_grp["definition_local"].attrs["version"] = version
+        det_grp = self.new_class(pyFAI_grp, name, "NXdetector")
+        return det_grp
+
+
+    def get_class(self, grp, class_type="NXcollection"):
+        """
+        return all sub-groups of the given type within a group
+        
+        @param grp: HDF5 group
+        @param class_type: name of the NeXus class
+        """
+        coll = [grp[name] for name in grp
+               if (isinstance(grp[name], h5py.Group) and \
+                   "NX_class" in grp[name].attrs and \
+                   grp[name].attrs["NX_class"] == class_type)]
+        return coll
