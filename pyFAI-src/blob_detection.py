@@ -563,7 +563,7 @@ class BlobDetection(object):
         kpy = self.keypoints.y
         sigma = self.keypoints.sigma
         img = self.raw
-        pylab.figure()
+        pylab.figure(5)
         pylab.imshow(img, interpolation='nearest')
 
         for y, x, s in itertools.izip(kpy, kpx, sigma):
@@ -609,22 +609,23 @@ class BlobDetection(object):
                     vect = vect[-1::-1,:]
 
                     
-                pylab.annotate("", xy=(x + vect[0][0] * val[0], y + vect[0][1] * val[0]), xytext=(x, y),
-                                       arrowprops=dict(facecolor='red', shrink=0.05),)
-
-                pylab.annotate("", xy=(x + vect[1][0] * val[1], y + vect[1][1] * val[1]), xytext=(x, y),
-                                       arrowprops=dict(facecolor='red', shrink=0.05),)
-                pylab.plot(x, y, 'og')
+                pylab.annotate("", xy=(x + vect[0][0] * val[0] * 1000, y + vect[0][1] * val[0] * 1000), xytext=(x, y),
+                                        arrowprops=dict(facecolor='red', shrink=0.05),)
+# 
+#                 pylab.annotate("", xy=(x + vect[1][0] * val[1], y + vect[1][1] * val[1]), xytext=(x, y),
+#                                         arrowprops=dict(facecolor='red', shrink=0.05),)
+#                 pylab.plot(x, y, 'og')
                 vals.append(val)
                 vects.append(vect)
         return vals, vects
 
     def refinement(self):
         from numpy import sqrt, cos, sin, power, arctan2, abs,pi
+        import pylab
         val,vect = self.direction()
         
-        L = 0.114
-#         L = 1.0
+#         L = 0.114
+        L = 1.0
          
         poni1 = self.raw.shape[0]/2.0
         poni2 = self.raw.shape[1]/2.0
@@ -640,8 +641,8 @@ class BlobDetection(object):
 
         valy,valx = numpy.transpose(vect)[0]
         phi_exp = arctan2(valy,valx) % pi
-#         print "phi exp"
-#         print phi_exp * 180/ pi
+        print "phi exp"
+        print phi_exp.max() * 180/ pi ,phi_exp.min() * 180/ pi
 
         
         cosrot1 = cos(rot1)
@@ -690,14 +691,24 @@ class BlobDetection(object):
                         cosrot1*sinrot3) + L*(cosrot1*cosrot3*sinrot2 + sinrot1*sinrot3) )**2 +  (d1*cosrot2*sinrot3 + \
                         L*(-(cosrot3*sinrot1) + cosrot1*sinrot2*sinrot3) + d2*(cosrot1*cosrot3 + sinrot1*sinrot2*sinrot3) )**2)
                         
-        
-        phi_th = arctan2(d1,d2)
-#         print "phi th"
-#         print phi_th_2
+        print 'dx,dy'
+        print dx.mean(),dy.mean(),d1.mean(),d2.mean()
+        phi_th = arctan2(d1,d2) %pi
+        print "phi th"
+        print phi_th.max() * 180/ pi , phi_th.min() * 180/ pi
         err = numpy.sum((phi_th - phi_exp)**2)/self.keypoints.x.size
         print "err"
         print err
-        
+        pylab.figure(5)
+#         pylab.imshow(self.raw, interpolation = 'nearest')
+        pylab.plot(self.keypoints.x,self.keypoints.y,'or')
+#         for i in range(self.keypoints.x.size):
+#             print self.keypoints.x[i] + dx, self.keypoints.y[i] + dy
+#             pylab.annotate("", xy=(self.keypoints.x[i] + dx[i] * power(10,6) * 10 , self.keypoints.y[i] + dy[i]* power(10,6)* 10), xytext=(self.keypoints.x[i], self.keypoints.y[i]),
+#                            arrowprops=dict(facecolor='blue', shrink=0.05),)
+ 
+#             pylab.annotate("", xy=(self.keypoints.x[i] + d2[i]/2.0, self.keypoints.y[i] + d1[i]/2.0), xytext=(self.keypoints.x[i], self.keypoints.y[i]),
+#                            arrowprops=dict(facecolor='yellow', shrink=0.05),)            
         return val,vect
 
 
