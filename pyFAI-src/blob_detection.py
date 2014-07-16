@@ -611,7 +611,7 @@ class BlobDetection(object):
                     
                 pylab.annotate("", xy=(x + vect[0][0] * val[0] * 1000, y + vect[0][1] * val[0] * 1000), xytext=(x, y),
                                         arrowprops=dict(facecolor='red', shrink=0.05),)
-# 
+
 #                 pylab.annotate("", xy=(x + vect[1][0] * val[1], y + vect[1][1] * val[1]), xytext=(x, y),
 #                                         arrowprops=dict(facecolor='red', shrink=0.05),)
 #                 pylab.plot(x, y, 'og')
@@ -622,28 +622,32 @@ class BlobDetection(object):
     def refinement(self):
         from numpy import sqrt, cos, sin, power, arctan2, abs,pi
         import pylab
+
         val,vect = self.direction()
-        
-#         L = 0.114
-        L = 1.0
-         
-        poni1 = self.raw.shape[0]/2.0
-        poni2 = self.raw.shape[1]/2.0
-#         poni1 = 0.0599/100.0 * power(10,6)
-#         poni2 = -0.07623/100.0 * power(10,6)
-
-        d1 = self.keypoints.y - poni1
-        d2 = self.keypoints.x - poni2
-        rot1 = rot2 = rot3 = 0
-#         rot1 = -0.22466
-#         rot2 = -0.07476
-#         rot3 = 0.00000005
-
         valy,valx = numpy.transpose(vect)[0]
         phi_exp = arctan2(valy,valx) % pi
         print "phi exp"
         print phi_exp.max() * 180/ pi ,phi_exp.min() * 180/ pi
-
+        print phi_exp.shape
+        
+        kpx,kpy = self.keypoints.x,self.keypoints.y
+        kpx.shape = -1,1
+        kpy.shape = -1,1
+         
+        poni1 = numpy.array([1])
+        poni2 = numpy.array([1])
+        poni1.shape = 1,-1
+        poni1.strides = 0,8
+        poni2.shape = 1,-1
+        poni2.strides = 0,8
+        
+        L = 1.0
+        
+        d1 = kpy - poni1
+        d2 = kpx - poni2
+        d1 = numpy.transpose(d1)
+        d2 = numpy.transpose(d2)
+        rot1 = rot2 = rot3 = 0
         
         cosrot1 = cos(rot1)
         cosrot2 = cos(rot2)
@@ -691,24 +695,28 @@ class BlobDetection(object):
                         cosrot1*sinrot3) + L*(cosrot1*cosrot3*sinrot2 + sinrot1*sinrot3) )**2 +  (d1*cosrot2*sinrot3 + \
                         L*(-(cosrot3*sinrot1) + cosrot1*sinrot2*sinrot3) + d2*(cosrot1*cosrot3 + sinrot1*sinrot2*sinrot3) )**2)
                         
-        print 'dx,dy'
-        print dx.mean(),dy.mean(),d1.mean(),d2.mean()
         phi_th = arctan2(d1,d2) %pi
         print "phi th"
         print phi_th.max() * 180/ pi , phi_th.min() * 180/ pi
+        print phi_th.shape
+        print ((phi_th - phi_exp)**2).shape
         err = numpy.sum((phi_th - phi_exp)**2)/self.keypoints.x.size
         print "err"
         print err
+        
+        
         pylab.figure(5)
-#         pylab.imshow(self.raw, interpolation = 'nearest')
+        pylab.imshow(self.raw, interpolation = 'nearest')
         pylab.plot(self.keypoints.x,self.keypoints.y,'or')
-#         for i in range(self.keypoints.x.size):
+        for i in range(self.keypoints.x.size):
 #             print self.keypoints.x[i] + dx, self.keypoints.y[i] + dy
-#             pylab.annotate("", xy=(self.keypoints.x[i] + dx[i] * power(10,6) * 10 , self.keypoints.y[i] + dy[i]* power(10,6)* 10), xytext=(self.keypoints.x[i], self.keypoints.y[i]),
-#                            arrowprops=dict(facecolor='blue', shrink=0.05),)
- 
-#             pylab.annotate("", xy=(self.keypoints.x[i] + d2[i]/2.0, self.keypoints.y[i] + d1[i]/2.0), xytext=(self.keypoints.x[i], self.keypoints.y[i]),
-#                            arrowprops=dict(facecolor='yellow', shrink=0.05),)            
+            pylab.annotate("", xy=(self.keypoints.x[i] + dx[0][i] * power(10,6) * 10 , self.keypoints.y[i] + dy[0][i]* power(10,6)* 10), xytext=(self.keypoints.x[i], self.keypoints.y[i]),
+                           arrowprops=dict(facecolor='blue', shrink=0.05),)
+  
+#             pylab.annotate("", xy=(self.keypoints.x[i] + d2[0][i]/2.0, self.keypoints.y[i] + d1[0][i]/2.0), xytext=(self.keypoints.x[i], self.keypoints.y[i]),
+#                             arrowprops=dict(facecolor='yellow', shrink=0.05),)   
+
+         
         return val,vect
 
 
